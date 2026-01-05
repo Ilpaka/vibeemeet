@@ -1,0 +1,134 @@
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: video_conference_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-app_database}
+      POSTGRES_USER: ${POSTGRES_USER:-appuser}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-apppass123}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init_db.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - app_network
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-appuser} -d ${POSTGRES_DB:-app_database}" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: video_conference_redis
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - app_network
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  livekit:
+    image: livekit/livekit-server:latest
+    container_name: video_conference_livekit
+    restart: unless-stopped
+    # Используем конфиг файл + передаём node-ip для ICE кандидатов
+    command: --dev --bind 0.0.0.0 --config /etc/livekit.yaml --node-ip ${HOST_IP:-127.0.0.1}
+    ports:
+      - "7880:7880" # HTTP/WebSocket
+      - "7881:7881" # TCP fallback
+      - "7882:7882/udp" # WebRTC UDP
+      - "50000-50100:50000-50100/udp" # RTP media
+      - "3478:3478/udp" # STUN
+    environment:
+      LIVEKIT_KEYS: "${LIVEKIT_API_KEY:-devkey}: ${LIVEKIT_API_SECRET:-secret}"
+    volumes:
+      - ./livekit.yaml:/etc/livekit.yaml:ro
+    networks:
+      - app_network
+    healthcheck:
+      test: [ "CMD-SHELL", "wget --no-check-certificate --spider -q http://localhost:7880/ || exit 1" ]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: video_conference_backend
+    restart: unless-stopped
+    ports:
+      - "${SERVER_PORT:-8081}:8080"
+    environment:
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      SERVER_PORT: 8080
+      SERVER_HOST: 0.0.0.0
+      DATABASE_DSN: postgres://${POSTGRES_USER:-appuser}:${POSTGRES_PASSWORD:-apppass123}@postgres:5432/${POSTGRES_DB:-app_database}?sslmode=disable
+      REDIS_ADDR: redis:6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      REDIS_DB: 0
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-dev-access-secret-change-in-production}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-dev-refresh-secret-change-in-production}
+      JWT_ACCESS_TTL: ${JWT_ACCESS_TTL:-15m}
+      JWT_REFRESH_TTL: ${JWT_REFRESH_TTL:-168h}
+      LIVEKIT_URL: ws://livekit:7880
+      LIVEKIT_FRONTEND_URL: ""
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-devkey}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-secret}
+      HOST_IP: ${HOST_IP:-}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      livekit:
+        condition: service_healthy
+    networks:
+      - app_network
+    volumes:
+      - ./web:/app/web:ro
+    healthcheck:
+      test: [ "CMD-SHELL", "wget --no-check-certificate -q -O /dev/null http://localhost:8080/health || exit 1" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  nginx:
+    image: nginx:alpine
+    container_name: video_conference_nginx
+    restart: unless-stopped
+    ports:
+      - "${NGINX_PORT:-80}:80"
+    volumes:
+      - ./web:/usr/share/nginx/html:ro
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx-entrypoint.sh:/docker-entrypoint-nginx.sh:ro
+    entrypoint: [ "/bin/sh", "-c", "tr -d '\\r' < /docker-entrypoint-nginx.sh > /tmp/entrypoint.sh && chmod +x /tmp/entrypoint.sh && /tmp/entrypoint.sh" ]
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - app_network
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+
+networks:
+  app_network:
+    driver: bridge
