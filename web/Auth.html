@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Вход / Регистрация - VibeMeet</title>
+    <link rel="stylesheet" href="css/style.css?v=20260113" />
+  </head>
+  <body>
+    <div class="background-aurora"></div>
+    <div class="background-noise"></div>
+
+    <div class="app-root">
+      <header class="topbar">
+        <div class="brand">
+          <div class="brand-text">
+            <div class="brand-title">Видеоконференции</div>
+            <div class="brand-sub">быстро • безопасно • вместе</div>
+          </div>
+        </div>
+        <div class="top-actions link-back" id="btn-back" data-tip="Вернуться на главную">
+          ← Назад
+        </div>
+      </header>
+
+      <section class="auth-screen">
+        <div class="auth-container">
+          <!-- Вкладки переключения -->
+          <div class="auth-tabs">
+            <button class="auth-tab active" data-tab="login">Вход</button>
+            <button class="auth-tab" data-tab="register">Регистрация</button>
+          </div>
+
+          <!-- Форма входа -->
+          <div id="login-form" class="auth-form active">
+            <div class="auth-card glass">
+              <div class="auth-header">
+                <h2>Вход в систему</h2>
+                <p class="lede">Войдите чтобы создавать комнаты</p>
+              </div>
+
+              <div class="form-group">
+                <label for="login-email">Email</label>
+                <div class="input-shell">
+                  <input
+                    id="login-email"
+                    type="email"
+                    placeholder="your@email.com"
+                    autocomplete="email"
+                  />
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label for="login-password">Пароль</label>
+                <div class="input-shell">
+                  <input
+                    id="login-password"
+                    type="password"
+                    placeholder="••••••••"
+                    autocomplete="current-password"
+                  />
+                </div>
+              </div>
+
+              <div id="login-error" class="error-message hidden"></div>
+
+              <div class="auth-footer">
+                <button id="btn-login" class="btn btn-primary">
+                  Войти
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Форма регистрации -->
+          <div id="register-form" class="auth-form">
+            <div class="auth-card glass">
+              <div class="auth-header">
+                <h2>Регистрация</h2>
+                <p class="lede">Создайте аккаунт для создания комнат</p>
+              </div>
+
+              <div class="form-group">
+                <label for="register-name">Имя</label>
+                <div class="input-shell">
+                  <input
+                    id="register-name"
+                    type="text"
+                    placeholder="Ваше имя"
+                    autocomplete="name"
+                  />
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label for="register-email">Email</label>
+                <div class="input-shell">
+                  <input
+                    id="register-email"
+                    type="email"
+                    placeholder="your@email.com"
+                    autocomplete="email"
+                  />
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label for="register-password">Пароль</label>
+                <div class="input-shell">
+                  <input
+                    id="register-password"
+                    type="password"
+                    placeholder="Минимум 8 символов"
+                    autocomplete="new-password"
+                  />
+                </div>
+                <div class="input-hint">Минимум 8 символов, включая цифры и буквы</div>
+              </div>
+
+              <div class="form-group">
+                <label for="register-password-confirm">Подтвердите пароль</label>
+                <div class="input-shell">
+                  <input
+                    id="register-password-confirm"
+                    type="password"
+                    placeholder="Повторите пароль"
+                    autocomplete="new-password"
+                  />
+                </div>
+              </div>
+
+              <div id="register-error" class="error-message hidden"></div>
+
+              <div class="auth-footer">
+                <button id="btn-register" class="btn btn-primary">
+                  Зарегистрироваться
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+    <script src="js/Auth.js?v=20260119" defer></script>
+  </body>
+</html>

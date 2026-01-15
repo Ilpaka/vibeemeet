@@ -67,6 +67,10 @@ func main() {
 
 	// Инициализация middleware
 	authMiddleware := middleware.NewAuthMiddleware(services.Auth, appLogger)
+	// External auth middleware для JWT от Auth-сервиса (NextUp)
+	// Используем JWT_ACCESS_SECRET - должен быть одинаковым с Auth-сервисом
+	// Передаем userRepo для auto-provisioning пользователей
+	externalAuthMiddleware := middleware.NewExternalAuthMiddleware(cfg.JWT.AccessSecret, repos.User, appLogger)
 	rateLimitMiddleware := middleware.NewRateLimitMiddleware(services.RateLimit, appLogger)
 	participantMiddleware := middleware.ParticipantMiddleware()
 
@@ -74,7 +78,7 @@ func main() {
 	handlers := handler.NewHandlers(services, repos, cfg, appLogger)
 
 	// Настройка роутера
-	router := setupRouter(handlers, authMiddleware, rateLimitMiddleware, participantMiddleware, cfg, appLogger)
+	router := setupRouter(handlers, authMiddleware, externalAuthMiddleware, rateLimitMiddleware, participantMiddleware, cfg, appLogger)
 
 	// Запуск HTTP сервера
 	srv := &http.Server{
@@ -113,6 +117,7 @@ func main() {
 func setupRouter(
 	handlers *handler.Handlers,
 	authMiddleware *middleware.AuthMiddleware,
+	externalAuthMiddleware *middleware.ExternalAuthMiddleware,
 	rateLimitMiddleware *middleware.RateLimitMiddleware,
 	participantMiddleware gin.HandlerFunc,
 	cfg *config.Config,
@@ -145,58 +150,32 @@ func setupRouter(
 			public.POST("/refresh", handlers.Auth.RefreshToken)
 		}
 
-		// Анонимные endpoints (без аутентификации, но с participant_id)
-		anonymous := v1.Group("")
-		anonymous.Use(participantMiddleware)
-		{
-			// Анонимные комнаты
-			if handlers.AnonymousRoom != nil {
-				anonymous.POST("/rooms", handlers.AnonymousRoom.Create)
-				anonymous.GET("/rooms/:id", handlers.AnonymousRoom.GetByID)
-				anonymous.POST("/rooms/:id/join", handlers.AnonymousRoom.Join)
-				anonymous.POST("/rooms/:id/leave", handlers.AnonymousRoom.Leave)
-				anonymous.GET("/rooms/:id/participants", handlers.AnonymousRoom.GetParticipants)
-			}
+		// Анонимные endpoints отключены - теперь требуется авторизация
+		// Все операции с комнатами через protected endpoints
 
-			// Анонимный endpoint для получения LiveKit токена
-			if handlers.AnonymousMedia != nil {
-				anonymous.POST("/rooms/:id/media/token", handlers.AnonymousMedia.GetToken)
-			}
-
-			// Анонимный чат
-			if handlers.AnonymousChat != nil {
-				anonymous.GET("/rooms/:id/chat/messages", handlers.AnonymousChat.GetMessages)
-				anonymous.POST("/rooms/:id/chat/messages", handlers.AnonymousChat.SendMessage)
-				anonymous.DELETE("/rooms/:id/chat/messages/:messageId", handlers.AnonymousChat.DeleteMessage)
-			}
-		}
-
-		// Защищенные endpoints
+		// Защищенные endpoints (через внешний Auth-сервис)
+		// Используем ExternalAuthMiddleware для JWT токенов от NextUp Auth-сервиса
 		protected := v1.Group("")
-		protected.Use(authMiddleware.RequireAuth())
+		protected.Use(externalAuthMiddleware.RequireAuth())
 		{
-			// Пользователи
-			users := protected.Group("/users")
-			{
-				users.GET("/me", handlers.User.GetMe)
-				users.PUT("/me", handlers.User.UpdateMe)
-				users.GET("/me/settings", handlers.User.GetSettings)
-				users.PUT("/me/settings", handlers.User.UpdateSettings)
-			}
-
-			// Комнаты (только для аутентифицированных пользователей - устаревшие endpoints)
-			// Основные операции теперь через анонимные endpoints
+			// Комнаты для авторизованных пользователей
 			rooms := protected.Group("/rooms")
 			{
-				// rooms.POST("", handlers.Room.Create) // Убрано - используем анонимный endpoint
+				rooms.POST("", handlers.Room.Create)
 				rooms.GET("", handlers.Room.List)
-				// rooms.GET("/:id", handlers.Room.GetByID) // Убрано - используем анонимный endpoint
+				rooms.GET("/:id", handlers.Room.GetByID)
 				rooms.PUT("/:id", handlers.Room.Update)
 				rooms.DELETE("/:id", handlers.Room.Delete)
-				// rooms.POST("/:id/join", handlers.Room.Join) // Убрано - используем анонимный endpoint
-				// rooms.POST("/:id/leave", handlers.Room.Leave) // Убрано - используем анонимный endpoint
+				rooms.POST("/:id/join", handlers.Room.Join)
+				rooms.POST("/:id/leave", handlers.Room.Leave)
 				rooms.POST("/:id/invite", handlers.Room.CreateInvite)
-				// rooms.GET("/:id/participants", handlers.Room.GetParticipants) // Убрано - используем анонимный endpoint
+				rooms.GET("/:id/participants", handlers.Room.GetParticipants)
+			}
+
+			// Медиа токены для авторизованных
+			media := protected.Group("/rooms/:id/media")
+			{
+				media.POST("/token", handlers.Media.GetToken)
 			}
 
 			// Waiting room
@@ -207,20 +186,13 @@ func setupRouter(
 				waitingRoom.POST("/:entryId/reject", handlers.WaitingRoom.Reject)
 			}
 
-			// Чат - теперь используем анонимный endpoint
-			// chat := protected.Group("/rooms/:id/chat")
-			// {
-			// 	chat.GET("/messages", handlers.Chat.GetMessages)
-			// 	chat.POST("/messages", handlers.Chat.SendMessage)
-			// 	chat.PUT("/messages/:messageId", handlers.Chat.EditMessage)
-			// 	chat.DELETE("/messages/:messageId", handlers.Chat.DeleteMessage)
-			// }
-
-			// Медиа (LiveKit токены) - убрано, используем анонимный endpoint
-			// media := protected.Group("/rooms/:id/media")
-			// {
-			// 	media.POST("/token", handlers.Media.GetToken)
-			// }
+			// Чат
+			chat := protected.Group("/rooms/:id/chat")
+			{
+				chat.GET("/messages", handlers.Chat.GetMessages)
+				chat.POST("/messages", handlers.Chat.SendMessage)
+				chat.DELETE("/messages/:messageId", handlers.Chat.DeleteMessage)
+			}
 
 			// Статистика
 			stats := protected.Group("/rooms/:id/stats")

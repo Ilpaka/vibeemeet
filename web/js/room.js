@@ -7,6 +7,15 @@ console.log("URL search:", window.location.search);
 console.log("URL searchParams room:", new URLSearchParams(window.location.search).get("room"));
 console.log("localStorage.current_room_id:", localStorage.getItem("current_room_id"));
 console.log("sessionStorage.current_room_id:", sessionStorage.getItem("current_room_id"));
+
+// Проверка JWT токена
+const accessToken = localStorage.getItem("accessToken");
+if (!accessToken || accessToken.trim() === "") {
+  console.error("❌ No accessToken found! Redirecting to login...");
+  window.location.href = "index.html";
+} else {
+  console.log("✅ AccessToken found:", accessToken.substring(0, 20) + "...");
+}
 console.log("=== Конец ранней диагностики ===");
 
 const roomBanner = document.getElementById("banner-room");
@@ -229,15 +238,101 @@ function getParticipantID() {
   return participantID;
 }
 
+// Функция для обновления access token через refresh token
+async function refreshAccessToken() {
+  try {
+    const response = await fetch(`${window.location.origin}/auth-api/refresh`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      credentials: "include", // Включаем cookies для refresh token
+    });
+    
+    if (!response.ok) {
+      console.error("❌ Failed to refresh token:", response.status);
+      return false;
+    }
+    
+    const data = await response.json();
+    localStorage.setItem("accessToken", data.access_token);
+    console.log("✅ Access token refreshed successfully");
+    return true;
+  } catch (error) {
+    console.error("❌ Refresh token error:", error);
+    return false;
+  }
+}
+
 // Получение заголовков для API запросов
 function getAPIHeaders() {
   const participantID = getParticipantID();
+  const accessToken = localStorage.getItem("accessToken");
+  
+  // КРИТИЧНО: JWT токен обязателен для всех запросов
+  if (!accessToken || accessToken.trim() === "") {
+    console.error("❌ CRITICAL: No accessToken found in localStorage!");
+    console.error("localStorage keys:", Object.keys(localStorage));
+    console.error("localStorage content:", {
+      accessToken: localStorage.getItem("accessToken"),
+      user: localStorage.getItem("user"),
+      display_name: localStorage.getItem("display_name")
+    });
+    
+    // Редирект на страницу логина
+    alert("Сессия истекла. Пожалуйста, войдите снова.");
+    window.location.href = "index.html";
+    throw new Error("Authorization required");
+  }
+  
   const headers = {
     "X-Participant-ID": participantID,
     "Content-Type": "application/json",
+    "Authorization": `Bearer ${accessToken}`,
   };
-  console.log("API Headers:", headers);
+  
+  console.log("✅ API Headers with Authorization:", {
+    "X-Participant-ID": participantID,
+    "Authorization": `Bearer ${accessToken.substring(0, 20)}...`,
+    "Content-Type": "application/json"
+  });
+  
   return headers;
+}
+
+// Обертка для fetch с автоматическим обновлением токена при 401
+async function fetchWithAuth(url, options = {}) {
+  let headers = options.headers || getAPIHeaders();
+  
+  let response = await fetch(url, {
+    ...options,
+    headers: headers
+  });
+  
+  // Если получили 401 - пробуем обновить токен
+  if (response.status === 401) {
+    console.log("🔄 Got 401, attempting to refresh token...");
+    const refreshed = await refreshAccessToken();
+    
+    if (refreshed) {
+      // Повторяем запрос с новым токеном
+      headers = getAPIHeaders();
+      response = await fetch(url, {
+        ...options,
+        headers: headers
+      });
+    } else {
+      // Не удалось обновить - редирект на логин
+      console.error("❌ Failed to refresh token, redirecting to login");
+      localStorage.removeItem("accessToken");
+      localStorage.removeItem("user");
+      alert("Сессия истекла. Пожалуйста, войдите снова.");
+      window.location.href = "index.html";
+      throw new Error("Authorization required");
+    }
+  }
+  
+  return response;
 }
 
 // Функция для получения LiveKit SDK из различных источников
@@ -318,9 +413,18 @@ function getDisplayName() {
 
 // Присоединение к существующей комнате
 async function joinExistingRoom(roomId, displayName) {
-  const joinResponse = await fetch(`${API_BASE}/rooms/${roomId}/join`, {
+  // Проверяем токен перед запросом
+  const accessToken = localStorage.getItem("accessToken");
+  if (!accessToken || accessToken.trim() === "") {
+    console.error("❌ No accessToken! Redirecting to login...");
+    window.location.href = "index.html";
+    throw new Error("Authorization required");
+  }
+
+  console.log("Joining room:", roomId);
+  
+  const joinResponse = await fetchWithAuth(`${API_BASE}/rooms/${roomId}/join`, {
     method: "POST",
-    headers: getAPIHeaders(),
     body: JSON.stringify({ display_name: displayName }),
   });
 
@@ -348,9 +452,8 @@ async function createNewRoom(displayName) {
 
   console.log("Creating room with data:", requestBody);
 
-  const createResponse = await fetch(`${API_BASE}/rooms`, {
+  const createResponse = await fetchWithAuth(`${API_BASE}/rooms`, {
     method: "POST",
-    headers: getAPIHeaders(),
     body: JSON.stringify(requestBody),
   });
 
@@ -495,9 +598,8 @@ async function initRoom() {
       headers: headers
     });
 
-    const tokenResponse = await fetch(tokenUrl, {
+    const tokenResponse = await fetchWithAuth(tokenUrl, {
       method: "POST",
-      headers: headers,
       body: JSON.stringify({ display_name: displayName }),
     });
 
@@ -2235,9 +2337,8 @@ async function sendChatMessage() {
 
   // Отправка через API
   try {
-    const response = await fetch(`${API_BASE}/rooms/${currentRoomId}/chat/messages`, {
+    const response = await fetchWithAuth(`${API_BASE}/rooms/${currentRoomId}/chat/messages`, {
       method: "POST",
-      headers: getAPIHeaders(),
       body: JSON.stringify({ content: text, display_name: displayName }),
     });
 

@@ -66,13 +66,22 @@
         script.src = url;
         script.async = false;
         script.defer = false;
+        script.crossOrigin = 'anonymous';
+
+        const timeout = setTimeout(() => {
+          script.remove();
+          reject(new Error("Timeout загрузки скрипта: " + url));
+        }, 10000); // 10 секунд таймаут
 
         script.onload = function () {
-          console.log("Скрипт загружен с:", url);
+          clearTimeout(timeout);
+          console.log("✅ Скрипт загружен с:", url);
           resolve();
         };
 
         script.onerror = function () {
+          clearTimeout(timeout);
+          script.remove();
           reject(new Error("Ошибка загрузки скрипта: " + url));
         };
 
@@ -91,7 +100,9 @@
 
       const cdnUrls = [
         'https://unpkg.com/livekit-client@2.8.1/dist/livekit-client.umd.js',
-        'https://cdn.jsdelivr.net/npm/livekit-client@2.8.1/dist/livekit-client.umd.js'
+        'https://cdn.jsdelivr.net/npm/livekit-client@2.8.1/dist/livekit-client.umd.js',
+        'https://esm.sh/livekit-client@2.8.1',
+        'https://cdn.skypack.dev/livekit-client@2.8.1'
       ];
 
       for (const url of cdnUrls) {
@@ -322,7 +333,7 @@
     </div>
   </div>
 
-  <script src="js/room.js?v=20251222i" defer></script>
+  <script src="js/room.js?v=20260115a" defer></script>
 </body>
 
 </html>
